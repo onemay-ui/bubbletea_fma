@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>珍奶外送員大挑戰 - 牛頓第二定律物理遊戲</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: 'PingFang TC', 'Microsoft JhengHei', system-ui, -apple-system, sans-serif;
+            touch-action: manipulation;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .boba-bubble {
+            box-shadow: inset -2px -2px 4px rgba(0,0,0,0.4);
+        }
+        /* Custom scrollbar for control panel */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="bg-amber-50 text-slate-800 min-h-screen flex flex-col justify-between overflow-x-hidden">
+
+    <header class="bg-amber-800 text-white p-3 shadow-md">
+        <div class="max-w-7xl mx-auto flex justify-between items-center px-2">
+            <div class="flex items-center space-x-2">
+                <i class="fa-solid fa-mug-hot text-amber-300 text-2xl"></i>
+                <h1 class="text-xl md:text-2xl font-bold tracking-wide">珍奶外送員大挑戰 <span class="text-xs bg-amber-600 px-2 py-0.5 rounded-full font-normal">牛頓第二定律 <i>F = ma</i></span></h1>
+            </div>
+            
+            <!-- Game stats -->
+            <div class="flex items-center space-x-6 text-sm md:text-base font-semibold">
+                <div class="flex items-center space-x-1">
+                    <span>得分:</span>
+                    <span id="score-display" class="text-amber-300 text-xl font-bold">0</span>
+                </div>
+                <div class="flex items-center space-x-1">
+                    <span>剩餘珍奶:</span>
+                    <div id="lives-container" class="flex space-x-1 text-red-400 text-lg">
+                        <!-- Lives rendered dynamically -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl w-full mx-auto p-2 md:p-4 flex-1 flex flex-col gap-3">
+        
+        <!-- Main Canvas Frame (Game Simulation) -->
+        <div class="relative w-full h-64 md:h-80 bg-amber-100 rounded-2xl shadow-inner border-4 border-amber-800/20 overflow-hidden flex-shrink-0">
+            <canvas id="gameCanvas"></canvas>
+
+            <!-- Overlay Message Box -->
+            <div id="status-overlay" class="absolute inset-0 bg-black/40 backdrop-blur-sm flex flex-col items-center justify-center text-white p-4 transition-opacity duration-300 opacity-0 pointer-events-none">
+                <div id="status-card" class="bg-white text-slate-800 rounded-2xl p-6 shadow-2xl max-w-md w-full text-center border-4 border-amber-400 transform scale-95 transition-transform duration-300">
+                    <div id="status-icon" class="text-5xl mb-2">🎉</div>
+                    <h2 id="status-title" class="text-2xl font-extrabold mb-2 text-amber-800">完美送達！</h2>
+                    <p id="status-desc" class="text-slate-600 mb-4">恰好停在顧客面前的得分區！</p>
+                    <button id="next-btn" onclick="resetGameRound()" class="w-full bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold py-3 rounded-xl shadow-md text-lg transition">
+                        再推一杯
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3 flex-1">
+            
+            <!-- Left: Dynamic v-t Chart Area -->
+            <div class="md:col-span-5 bg-white p-3 md:p-4 rounded-2xl shadow-md border border-amber-200 flex flex-col">
+                <div class="flex justify-between items-center mb-2">
+                    <h3 class="font-bold text-amber-900 text-sm md:text-base flex items-center gap-1">
+                        <i class="fa-solid fa-chart-line text-amber-600"></i> 動態 <i>v-t</i> 速度-時間圖
+                    </h3>
+                    <span class="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded">斜率 = 加速度 <i>a</i></span>
+                </div>
+                <div class="relative flex-1 min-h-[140px] bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">
+                    <canvas id="vtCanvas"></canvas>
+                </div>
+                <div class="mt-2 text-xs text-slate-600 flex justify-between bg-amber-50/80 p-2 rounded-lg border border-amber-100">
+                    <span><i class="fa-solid fa-circle-info text-amber-600"></i> 折線下方<b>總面積</b> = 杯子移動總距離 (<i>d</i>)</span>
+                </div>
+            </div>
+
+            <!-- Right: Physics Parameters & Push Control Panel -->
+            <div class="md:col-span-7 bg-white p-3 md:p-4 rounded-2xl shadow-md border border-amber-200 flex flex-col justify-between space-y-3">
+                
+                <!-- Controls Grid -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    
+                    <!-- Parameter 1: Cup Weight -->
+                    <div class="bg-amber-50/60 p-2.5 rounded-xl border border-amber-100">
+                        <label class="block text-xs font-bold text-amber-900 mb-1">
+                            <i class="fa-solid fa-weight-hanging text-amber-700"></i> 珍奶規格 (質量 <i>m</i>)
+                        </label>
+                        <select id="mass-select" onchange="updatePhysicsParameters()" class="w-full bg-white border border-amber-300 rounded-lg p-2 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                            <option value="0.1">空杯 (0.1 kg / 0 珍珠)</option>
+                            <option value="0.3" selected>半滿珍奶 (0.3 kg / 半杯珠)</option>
+                            <option value="0.5">大杯全滿 (0.5 kg / 爆漿珠)</option>
+                        </select>
+                    </div>
+
+                    <!-- Parameter 2: Push Force Slider -->
+                    <div class="bg-amber-50/60 p-2.5 rounded-xl border border-amber-100">
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="text-xs font-bold text-amber-900">
+                                <i class="fa-solid fa-hand-back-fist text-amber-700"></i> 推力大小 (<i>F</i>)
+                            </label>
+                            <span id="force-val" class="text-sm font-extrabold text-amber-700">2.0 N</span>
+                        </div>
+                        <input id="force-range" type="range" min="0.5" max="5.0" step="0.1" value="2.0" oninput="updatePhysicsParameters()" class="w-full accent-amber-600 cursor-pointer">
+                    </div>
+
+                    <!-- Parameter 3: Table Friction -->
+                    <div class="bg-amber-50/60 p-2.5 rounded-xl border border-amber-100">
+                        <label class="block text-xs font-bold text-amber-900 mb-1">
+                            <i class="fa-solid fa-road text-amber-700"></i> 桌面材質 (摩擦力 <i>f</i>)
+                        </label>
+                        <select id="friction-select" onchange="updatePhysicsParameters()" class="w-full bg-white border border-amber-300 rounded-lg p-2 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500">
+                            <option value="0.05">冰塊桌面 (極低阻力)</option>
+                            <option value="0.2" selected>標準木桌 (一般阻力)</option>
+                            <option value="0.5">鋪毛巾桌面 (高阻力)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Live Physics Instrumentation Bar -->
+                <div class="grid grid-cols-4 gap-2 bg-slate-800 text-white p-2.5 rounded-xl text-center text-xs">
+                    <div>
+                        <div class="text-slate-400 scale-90">合力 <i>F</i><sub>net</sub></div>
+                        <div id="meter-fnet" class="text-sm md:text-base font-bold text-amber-400">1.4 N</div>
+                    </div>
+                    <div>
+                        <div class="text-slate-400 scale-90">加速度 <i>a</i></div>
+                        <div id="meter-acc" class="text-sm md:text-base font-bold text-emerald-400">4.67 m/s²</div>
+                    </div>
+                    <div>
+                        <div class="text-slate-400 scale-90">離手速度 <i>v</i><sub>0</sub></div>
+                        <div id="meter-v0" class="text-sm md:text-base font-bold text-sky-400">0.93 m/s</div>
+                    </div>
+                    <div>
+                        <div class="text-slate-400 scale-90">預測距離 <i>d</i></div>
+                        <div id="meter-dist" class="text-sm md:text-base font-bold text-purple-400">0.22 m</div>
+                    </div>
+                </div>
+
+                <!-- Launch Action Button -->
+                <button id="launch-btn" onclick="launchBoba()" class="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 active:scale-[0.98] text-white font-black py-3 rounded-xl shadow-lg text-lg flex items-center justify-center gap-2 transition cursor-pointer">
+                    <i class="fa-solid fa-paper-plane"></i> 推 出 珍 奶 ！
+                </button>
+            </div>
+        </div>
+    </main>
+
+    <footer class="bg-amber-900 text-amber-200 text-xs py-2 px-4 text-center">
+        <span>💡 <b>理化小秘訣：</b>手推動時有推力；<b>手離開杯子後，推力歸零</b>，杯子只受向左的摩擦力減速！</span>
+    </footer>
+
+    <script>
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        let audioCtx = null;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new AudioCtx();
+            }
+        }
+
+        // Play synthetic sound effects
+        function playSound(type) {
+            initAudio();
+            if (!audioCtx) return;
+
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            const now = audioCtx.currentTime;
+
+            if (type === 'push') {
+                // Swoosh / Slide sound
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(150, now);
+                osc.frequency.exponentialRampToValueAtTime(400, now + 0.15);
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                osc.start(now);
+                osc.stop(now + 0.2);
+            } else if (type === 'score') {
+                // Bell chime sound
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(523.25, now); // C5
+                osc.frequency.setValueAtTime(659.25, now + 0.1); // E5
+                osc.frequency.setValueAtTime(783.99, now + 0.2); // G5
+                gain.gain.setValueAtTime(0.4, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+                osc.start(now);
+                osc.stop(now + 0.6);
+            } else if (type === 'crash') {
+                // Shatter / Splat noise simulation
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(300, now);
+                osc.frequency.linearRampToValueAtTime(40, now + 0.3);
+                gain.gain.setValueAtTime(0.5, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+                osc.start(now);
+                osc.stop(now + 0.35);
+            } else if (type === 'short') {
+                // Short stop click
+                osc.type = 'square';
+                osc.frequency.setValueAtTime(200, now);
+                gain.gain.setValueAtTime(0.2, now);
+                gain.gain.linearRampToValueAtTime(0.01, now + 0.08);
+                osc.start(now);
+                osc.stop(now + 0.08);
+            }
+        }
+
+        const g = 9.8;             // Gravity acceleration (m/s2)
+        const t_push = 0.2;        // Push duration (s)
+        const scaleMetersToPx = 300; // Physics world scale: 1 meter = 300 pixels
+
+        let mass = 0.3;            // Cup Mass (kg)
+        let F_push = 2.0;          // Push force (N)
+        let mu_k = 0.2;            // Dynamic friction coefficient
+        let lives = 5;
+        let score = 0;
+
+        // Physics runtime state
+        let isSimulating = false;
+        let simTime = 0;           // Current time in simulation (s)
+        let cupX = 80;             // Cup position on canvas (px)
+        let cupVx = 0;             // Current velocity (m/s)
+        let cupAx = 0;             // Current acceleration (m/s2)
+        let targetZoneX = 0;       // Target area starting X (px)
+        let targetZoneWidth = 80;  // Target area width (px)
+        let tableEndX = 0;         // Table edge X (px)
+
+        // Recorded data for v-t graph
+        let vtHistory = [];
+
+        const gameCanvas = document.getElementById('gameCanvas');
+        const ctx = gameCanvas.getContext('2d');
+
+        const vtCanvas = document.getElementById('vtCanvas');
+        const vtCtx = vtCanvas.getContext('2d');
+
+        // Handle canvas auto-resizing
+        function resizeCanvases() {
+            gameCanvas.width = gameCanvas.parentElement.clientWidth;
+            gameCanvas.height = gameCanvas.parentElement.clientHeight;
+
+            vtCanvas.width = vtCanvas.parentElement.clientWidth;
+            vtCanvas.height = vtCanvas.parentElement.clientHeight;
+
+            // Recalculate target positions
+            tableEndX = gameCanvas.width - 60;
+            targetZoneX = tableEndX - 100;
+
+            if (!isSimulating) {
+                renderGameScene();
+                renderVtGraph();
+            }
+        }
+
+        window.addEventListener('resize', resizeCanvases);
+
+        function updatePhysicsParameters() {
+            mass = parseFloat(document.getElementById('mass-select').value);
+            F_push = parseFloat(document.getElementById('force-range').value);
+            mu_k = parseFloat(document.getElementById('friction-select').value);
+
+            document.getElementById('force-val').innerText = F_push.toFixed(1) + ' N';
+
+            // Calculate metrics for Dashboard
+            const f_k = mu_k * mass * g;
+            const F_net = Math.max(0, F_push - f_k);
+            const a1 = F_net / mass;
+            const v0 = a1 * t_push;
+            const a2 = -f_k / mass;
+            const d_slide = (v0 * v0) / (2 * Math.abs(a2));
+            const d_push = 0.5 * a1 * t_push * t_push;
+            const d_total = d_push + d_slide;
+
+            // Update UI instrumentation
+            document.getElementById('meter-fnet').innerText = F_net.toFixed(2) + ' N';
+            document.getElementById('meter-acc').innerText = a1.toFixed(2) + ' m/s²';
+            document.getElementById('meter-v0').innerText = v0.toFixed(2) + ' m/s';
+            document.getElementById('meter-dist').innerText = d_total.toFixed(2) + ' m';
+
+            if (!isSimulating) {
+                renderGameScene();
+            }
+        }
+
+        function renderLives() {
+            const container = document.getElementById('lives-container');
+            container.innerHTML = '';
+            for (let i = 0; i < 5; i++) {
+                if (i < lives) {
+                    container.innerHTML += '<i class="fa-solid fa-glass-water text-amber-300"></i>';
+                } else {
+                    container.innerHTML += '<i class="fa-solid fa-glass-water-droplet text-slate-500 opacity-40"></i>';
+                }
+            }
+        }
+
+        function launchBoba() {
+            if (isSimulating) return;
+
+            initAudio();
+            playSound('push');
+
+            isSimulating = true;
+            simTime = 0;
+            cupX = 80;
+            cupVx = 0;
+            cupAx = 0;
+            vtHistory = [];
+
+            // Disable button during run
+            document.getElementById('launch-btn').disabled = true;
+            document.getElementById('launch-btn').classList.add('opacity-50', 'cursor-not-allowed');
+
+            lastTimestamp = performance.now();
+            requestAnimationFrame(gameLoop);
+        }
+
+        let lastTimestamp = 0;
+
+        function gameLoop(timestamp) {
+            const dt = Math.min((timestamp - lastTimestamp) / 1000, 0.03); // Cap dt
+            lastTimestamp = timestamp;
+
+            if (isSimulating) {
+                simTime += dt;
+
+                const f_k = mu_k * mass * g;
+
+                // Phase 1: Hand Pushing (t <= t_push)
+                if (simTime <= t_push) {
+                    const F_net = F_push - f_k;
+                    cupAx = F_net / mass;
+                    if (cupAx < 0) cupAx = 0; // Static friction holds if push is too weak
+                } 
+                // Phase 2: Free Sliding (t > t_push) - Push force is ZERO
+                else {
+                    cupAx = -f_k / mass;
+                }
+
+                // Euler Integration
+                cupVx += cupAx * dt;
+
+                // Stop condition if cup comes to rest
+                if (simTime > t_push && cupVx <= 0) {
+                    cupVx = 0;
+                    cupAx = 0;
+                    isSimulating = false;
+                    evaluateResult();
+                } else {
+                    cupX += cupVx * scaleMetersToPx * dt;
+                }
+
+                // Record v-t data
+                vtHistory.push({ t: simTime, v: cupVx });
+
+                // Check falling off table
+                if (cupX > tableEndX + 20) {
+                    isSimulating = false;
+                    evaluateResult(true); // Cup fell off
+                }
+
+                renderGameScene();
+                renderVtGraph();
+
+                if (isSimulating) {
+                    requestAnimationFrame(gameLoop);
+                }
+            }
+        }
+
+        function evaluateResult(fellOff = false) {
+            document.getElementById('launch-btn').disabled = false;
+            document.getElementById('launch-btn').classList.remove('opacity-50', 'cursor-not-allowed');
+
+            const cupCenter = cupX;
+            const overlay = document.getElementById('status-overlay');
+            const card = document.getElementById('status-card');
+            const icon = document.getElementById('status-icon');
+            const title = document.getElementById('status-title');
+            const desc = document.getElementById('status-desc');
+
+            overlay.classList.remove('opacity-0', 'pointer-events-none');
+            card.classList.remove('scale-95');
+            card.classList.add('scale-100');
+
+            if (fellOff) {
+                playSound('crash');
+                lives--;
+                renderLives();
+                icon.innerHTML = '💥';
+                title.innerText = '摔杯了！衝出桌面！';
+                title.className = 'text-2xl font-extrabold mb-2 text-red-600';
+                desc.innerText = '推力太大或作用時間太長，珍奶灑了一地！';
+            } else if (cupCenter >= targetZoneX && cupCenter <= targetZoneX + targetZoneWidth) {
+                playSound('score');
+                score += 100;
+                document.getElementById('score-display').innerText = score;
+                icon.innerHTML = '🎉';
+                title.innerText = '完美送達！ (+100分)';
+                title.className = 'text-2xl font-extrabold mb-2 text-emerald-600';
+                desc.innerText = '太讚了！剛好停在顧客面前的得分區！';
+            } else {
+                playSound('short');
+                lives--;
+                renderLives();
+                icon.innerHTML = '😅';
+                title.innerText = '未達得分區！';
+                title.className = 'text-2xl font-extrabold mb-2 text-amber-600';
+                desc.innerText = '推力不夠或摩擦力太大，珍奶停在半路上！';
+            }
+
+            if (lives <= 0) {
+                title.innerText = '遊戲結束 (Game Over)';
+                desc.innerText = `你的最終得分為：${score} 分！記得：手離開杯子後，推力就變 0 囉！`;
+                document.getElementById('next-btn').innerText = '重新開始挑戰';
+            } else {
+                document.getElementById('next-btn').innerText = '再推一杯';
+            }
+        }
+
+        function resetGameRound() {
+            const overlay = document.getElementById('status-overlay');
+            overlay.classList.add('opacity-0', 'pointer-events-none');
+
+            if (lives <= 0) {
+                lives = 5;
+                score = 0;
+                document.getElementById('score-display').innerText = score;
+                renderLives();
+            }
+
+            cupX = 80;
+            cupVx = 0;
+            cupAx = 0;
+            vtHistory = [];
+            renderGameScene();
+            renderVtGraph();
+        }
+
+        function renderGameScene() {
+            const w = gameCanvas.width;
+            const h = gameCanvas.height;
+            const tableY = h - 60;
+
+            ctx.clearRect(0, 0, w, h);
+
+            // 1. Draw Table
+            ctx.fillStyle = mu_k === 0.05 ? '#e0f2fe' : (mu_k === 0.5 ? '#fbcfe8' : '#d97706');
+            ctx.fillRect(0, tableY, tableEndX, 20);
+
+            // Table legs
+            ctx.fillStyle = '#78350f';
+            ctx.fillRect(20, tableY + 20, 15, h - tableY - 20);
+            ctx.fillRect(tableEndX - 35, tableY + 20, 15, h - tableY - 20);
+
+            // 2. Target Zone
+            ctx.fillStyle = 'rgba(34, 197, 94, 0.4)';
+            ctx.fillRect(targetZoneX, tableY - 5, targetZoneWidth, 10);
+            ctx.strokeStyle = '#16a34a';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(targetZoneX, tableY - 5, targetZoneWidth, 10);
+
+            ctx.fillStyle = '#15803d';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('🎯 得分區', targetZoneX + targetZoneWidth / 2, tableY - 12);
+
+            // 3. Draw Customer at table end
+            ctx.font = '36px sans-serif';
+            ctx.fillText('😋', tableEndX + 25, tableY - 10);
+
+            // 4. Draw Boba Cup
+            const cupW = 36;
+            const cupH = 50;
+            const cupBottomY = tableY;
+
+            ctx.save();
+            ctx.translate(cupX, cupBottomY - cupH);
+
+            // Cup body
+            ctx.fillStyle = 'rgba(254, 243, 199, 0.9)';
+            ctx.strokeStyle = '#78350f';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(cupW, 0);
+            ctx.lineTo(cupW * 0.85, cupH);
+            ctx.lineTo(cupW * 0.15, cupH);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Boba Pearls based on mass
+            ctx.fillStyle = '#292524';
+            const pearlCount = mass === 0.1 ? 0 : (mass === 0.3 ? 8 : 16);
+            for (let i = 0; i < pearlCount; i++) {
+                const px = 8 + (i % 4) * 6;
+                const py = cupH - 8 - Math.floor(i / 4) * 6;
+                ctx.beginPath();
+                ctx.arc(px, py, 3.5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            // Straw
+            ctx.strokeStyle = '#ef4444';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(cupW / 2, -10);
+            ctx.lineTo(cupW / 2 + 5, cupH - 5);
+            ctx.stroke();
+
+            ctx.restore();
+
+            // 5. Draw Physics Force Vectors (Arrows)
+            const arrowY = cupBottomY - cupH / 2;
+
+            // Push Force Vector (Red) - Only active during push phase
+            if (isSimulating && simTime <= t_push) {
+                drawArrow(cupX - 40, arrowY, cupX - 5, arrowY, '#ef4444', 4, `外力 F=${F_push}N`);
+            }
+
+            // Friction Vector (Blue) - Always opposes motion
+            if (isSimulating && cupVx > 0) {
+                const f_k = (mu_k * mass * g).toFixed(1);
+                drawArrow(cupX + cupW + 5, arrowY, cupX + cupW + 35, arrowY, '#3b82f6', 3, `摩擦力 f=${f_k}N`, true);
+            }
+
+            // Acceleration Vector (Green)
+            if (isSimulating && Math.abs(cupAx) > 0.01) {
+                const accText = `a=${cupAx.toFixed(1)}m/s²`;
+                if (cupAx > 0) {
+                    drawArrow(cupX, arrowY - 35, cupX + 30, arrowY - 35, '#10b981', 3, accText);
+                } else {
+                    drawArrow(cupX + cupW, arrowY - 35, cupX + cupW - 30, arrowY - 35, '#f59e0b', 3, accText);
+                }
+            }
+        }
+
+        /* Helper: Canvas Arrow Drawing function */
+        function drawArrow(fromx, fromy, tox, toy, color, lineWidth, label, reverseHead = false) {
+            ctx.save();
+            ctx.strokeStyle = color;
+            ctx.fillStyle = color;
+            ctx.lineWidth = lineWidth;
+
+            ctx.beginPath();
+            ctx.moveTo(fromx, fromy);
+            ctx.lineTo(tox, toy);
+            ctx.stroke();
+
+            const headlen = 8;
+            const angle = Math.atan2(toy - fromy, tox - fromx);
+
+            const arrowX = reverseHead ? fromx : tox;
+            const arrowAngle = reverseHead ? angle + Math.PI : angle;
+
+            ctx.beginPath();
+            ctx.moveTo(arrowX, toy);
+            ctx.lineTo(arrowX - headlen * Math.cos(arrowAngle - Math.PI / 6), toy - headlen * Math.sin(arrowAngle - Math.PI / 6));
+            ctx.lineTo(arrowX - headlen * Math.cos(arrowAngle + Math.PI / 6), toy - headlen * Math.sin(arrowAngle + Math.PI / 6));
+            ctx.closePath();
+            ctx.fill();
+
+            if (label) {
+                ctx.font = 'bold 11px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(label, (fromx + tox) / 2, fromy - 8);
+            }
+            ctx.restore();
+        }
+
+        function renderVtGraph() {
+            const w = vtCanvas.width;
+            const h = vtCanvas.height;
+            const padL = 35;
+            const padB = 25;
+            const padT = 15;
+            const padR = 15;
+
+            vtCtx.clearRect(0, 0, w, h);
+
+            // Axes
+            vtCtx.strokeStyle = '#94a3b8';
+            vtCtx.lineWidth = 1.5;
+            vtCtx.beginPath();
+            vtCtx.moveTo(padL, padT);
+            vtCtx.lineTo(padL, h - padB);
+            vtCtx.lineTo(w - padR, h - padB);
+            vtCtx.stroke();
+
+            // Labels
+            vtCtx.fillStyle = '#64748b';
+            vtCtx.font = '10px sans-serif';
+            vtCtx.fillText('v (m/s)', 5, padT + 8);
+            vtCtx.fillText('t (s)', w - padR - 15, h - 8);
+
+            if (vtHistory.length < 2) return;
+
+            // Scale calculations
+            const maxT = Math.max(1.2, vtHistory[vtHistory.length - 1].t);
+            const maxV = 2.0;
+
+            // Draw area under v-t curve
+            vtCtx.fillStyle = 'rgba(217, 119, 6, 0.2)';
+            vtCtx.beginPath();
+            vtCtx.moveTo(padL, h - padB);
+
+            vtHistory.forEach(pt => {
+                const x = padL + (pt.t / maxT) * (w - padL - padR);
+                const y = (h - padB) - (pt.v / maxV) * (h - padT - padB);
+                vtCtx.lineTo(x, y);
+            });
+
+            vtCtx.lineTo(padL + (vtHistory[vtHistory.length - 1].t / maxT) * (w - padL - padR), h - padB);
+            vtCtx.closePath();
+            vtCtx.fill();
+
+            // Draw v-t line
+            vtCtx.strokeStyle = '#d97706';
+            vtCtx.lineWidth = 2.5;
+            vtCtx.beginPath();
+
+            vtHistory.forEach((pt, idx) => {
+                const x = padL + (pt.t / maxT) * (w - padL - padR);
+                const y = (h - padB) - (pt.v / maxV) * (h - padT - padB);
+                if (idx === 0) vtCtx.moveTo(x, y);
+                else vtCtx.lineTo(x, y);
+            });
+            vtCtx.stroke();
+        }
+
+        window.onload = function() {
+            renderLives();
+            resizeCanvases();
+            updatePhysicsParameters();
+        };
+    </script>
+</body>
+</html>
